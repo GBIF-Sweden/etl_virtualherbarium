@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE/editor
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and runtime artifacts
+logs/*.log
+data/malformed/*_malformed.csv
+data/processed/duplicates_*.csv
+data/processed/quality_report_*.json
+
+# Local env
+.env
+.env.*

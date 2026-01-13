@@ -1,0 +1,25 @@
+.git
+.gitignore
+.github
+.idea
+.vscode
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Runtime/generated files
+logs
+data/malformed
+data/processed/duplicates_*.csv
+data/processed/quality_report_*.json
+
+# Local environment files
+.env
+.env.*
+
+# Reference material not needed in runtime image
+REFERENCE-MATERIALS
