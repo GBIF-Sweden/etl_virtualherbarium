@@ -1,0 +1,107 @@
+extract:
+  delimiter: "\t"
+  quotechar: '"'
+  lineterminator: "\r"
+  encoding: UTF8
+  verbatimFilePath: "./data/verbatim/"
+  sourcerURL: "http://herbarium.emg.umu.se/export/CSV.php"
+  herbarium: UME
+  dtype_dict:
+    CatalogNumber: str
+
+defaults:
+  basisOfRecord: PreservedSpecimen
+  collectionCode: General
+  institutionCode: UME
+
+mappings:
+  institutionCode: collectionCode
+  CatalogNumber: catalogNumber
+  Collector: recordedBy
+  collectornumber: recordNumber
+  DateCollected: eventDate
+  Notes: occurrenceRemarks
+  Continent: continent
+  Country: country
+  Province: stateProvince
+  District: municipality
+  Locality: locality
+  WGS84N: decimalLatitude
+  WGS84S: decimalLongitude
+  coordinateUncertaintyInMeters: coordinateUncertaintyInMeters
+  ScientificName: scientificName
+  Genus: genus
+  SpecificEpithet: specificEpithet
+  IntraspecificEpithet: infraspecificEpithet
+  RT90-N: verbatimLatitude
+  RT90-E: verbatimLongitude
+  OriginalName: previousIdentifications
+  Type-status: typeStatus
+  georeferenceRemarks: georeferenceRemarks
+  ImageLinks: associatedMedia
+  OriginalText: verbatimLocality
+unmapped:
+  - Comments
+  - CSource
+  - CValue
+  - RUBIN
+  - TAuctor
+  - Basionym
+  - ImageThumbLinks
+  - Column 33
+  - Column 34
+  - Column 35
+
+transformations:
+- function: generate_occ_id_triplet
+  params: {}
+#- function: clean_whitespace
+#  params: {}
+- function: drop_duplicate_rows
+  params: {}
+- function: drop_empty_rows
+  params:
+    column_to_check: catalogNumber
+- function: drop_unmapped_columns
+  params: {}
+
+load:
+  database_hostname: localhost
+  database_name: local_db
+  database_port: '3306'
+  database_table: svh_ume_dwc
+  database_table_pk_column: occurrenceID
+  delimiter: "\t"
+  encoding: utf8
+  targeFilePath: "./data/processed/dwc_ume.csv"
+  write_to_db: false
+  write_to_file: true
+  dwc_fields:
+    - occurrenceID
+    - institutionCode
+    - collectionCode
+    - catalogNumber
+    - basisOfRecord
+    - typeStatus
+    - occurrenceRemarks
+    - eventDate
+    - recordedBy
+    - recordNumber
+    - genus
+    - specificEpithet
+    - infraspecificEpithet
+    - scientificName
+    - previousIdentifications
+    - continent
+    - country
+    - stateProvince
+    - municipality
+    - locality
+    - verbatimLocality
+    - verbatimLatitude
+    - verbatimLongitude
+    - decimalLatitude
+    - decimalLongitude
+    - coordinateUncertaintyInMeters
+    - georeferenceRemarks
+    - associatedMedia
