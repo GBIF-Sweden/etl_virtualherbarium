@@ -13,3 +13,16 @@ from utils.logging_utils import configure_logging
 
 
 configure_logging()
+
+
+def _find_existing_verbatim_files(extract_config):
+    herbarium = extract_config.get("herbarium")
+    verbatim_dir = extract_config.get("verbatimFilePath")
+    if not herbarium or not verbatim_dir:
+        return []
+    pattern = os.path.join(verbatim_dir, f"{herbarium}_*.csv")
+    return sorted(glob.glob(pattern))
+
+
+def _get_target_file_path(load_config):
+    return load_config.get("targetFilePath") or load_config.get("targeFilePath")
