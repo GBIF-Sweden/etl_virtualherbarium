@@ -202,3 +202,61 @@ def drop_empty_rows(df, column_to_check):
         logging.error(f"ValueError: {ve}")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+
+def drop_duplicate_rows(df, config, run_context=None):
+    """
+    Removes duplicate rows from the DataFrame based on the specified primary key column.
+
+    Args:
+        df (pd.DataFrame): Input DataFrame.
+        config (dict): Configuration dictionary.
+
+    Returns:
+        pd.DataFrame: DataFrame with duplicate rows removed based on the primary key column.
+    """
+    load_config = config.get('load', {})
+    pk_column = load_config.get('database_table_pk_column')
+    if pk_column not in df.columns:
+        raise ValueError(f"Primary key column '{pk_column}' not found in DataFrame.")
+
+    duplicate_policy = load_config.get("duplicatePolicy", "drop_all_duplicates")
+
+    duplicate_mask = df.duplicated(subset=pk_column, keep=False)
+    duplicates_df = df[duplicate_mask].copy()
+    duplicate_keys = int(duplicates_df[pk_column].nunique()) if not duplicates_df.empty else 0
+
+    # Write dropped duplicate rows to an audit file.
+    duplicates_file = None
+    if not duplicates_df.empty:
+        processed_path = load_config.get('targetFilePath') or load_config.get('targeFilePath', '')
+        output_dir = os.path.dirname(processed_path) if processed_path else os.path.join('data', 'processed')
+        os.makedirs(output_dir, exist_ok=True)
+
+        herbarium = config.get('extract', {}).get('herbarium', 'unknown')
+        duplicates_file = os.path.join(output_dir, f"duplicates_{str(herbarium).lower()}.csv")
+        duplicates_df.to_csv(duplicates_file, sep=load_config.get('delimiter', '\t'), index=False)
+        logging.info(f"Wrote {len(duplicates_df)} duplicate rows to {duplicates_file}.")
+
+    if duplicate_policy == "drop_all_duplicates":
+        df_result = df[~df[pk_column].isin(duplicates_df[pk_column])].reset_index(drop=True)
+    elif duplicate_policy == "keep_first":
+        df_result = df.drop_duplicates(subset=pk_column, keep="first").reset_index(drop=True)
+    elif duplicate_policy == "keep_last":
+        df_result = df.drop_duplicates(subset=pk_column, keep="last").reset_index(drop=True)
+    elif duplicate_policy == "write_only":
+        df_result = df.reset_index(drop=True)
+    else:
+        raise ValueError(f"Unsupported duplicatePolicy: {duplicate_policy}")
+
+    if run_context is not None:
+        run_context.setdefault("quality", {})["duplicates"] = {
+            "pk_column": pk_column,
+            "policy": duplicate_policy,
+            "duplicate_rows_detected": int(len(duplicates_df)),
+            "duplicate_keys": duplicate_keys,
+            "duplicate_rows_dropped": int(len(df) - len(df_result)),
+            "duplicates_file": duplicates_file,
+        }
+
+    logging.info("drop_duplicate_rows transformation completed successfully.")
+    return df_result
