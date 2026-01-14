@@ -129,3 +129,76 @@ def drop_unmapped_columns(df, config, run_context=None):
     except Exception as e:
         logging.error(f"An error occurred while dropping unmapped columns: {e}")
         raise
+
+
+def clean_extra_quotes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Removes extra single or double quotes enclosing values in a pandas DataFrame.
+
+    Args:
+        df: The input DataFrame to clean.
+
+    Returns:
+        A DataFrame with extra quotes removed.
+    """
+
+    def remove_quotes(value: str) -> str:
+        """
+        Removes surrounding single or double quotes from a string.
+
+        Args:
+            value: The input string.
+
+        Returns:
+            The string with quotes removed.
+        """
+
+        if value.startswith('"') and value.endswith('"'):
+            return value[1:-1]
+        elif value.startswith("'") and value.endswith("'"):
+            return value[1:-1]
+        else:
+            return value
+
+    # Apply the function to all string columns
+    for col in df.select_dtypes(include='object').columns:
+        df[col] = df[col].apply(remove_quotes)
+
+    return df
+
+
+def copyColumn(df, srcColumn, targetColumn):
+    # Copy values from srcColumn to targetColumn
+    df[targetColumn] = df[srcColumn]
+    return df
+
+
+def drop_empty_rows(df, column_to_check):
+    """
+    Drop rows where the specified column is empty or null.
+
+    Args:
+        df (pd.DataFrame): The input DataFrame.
+        column_to_check (str): The column name to check for empty or null values.
+
+    Returns:
+        pd.DataFrame: The updated DataFrame with the rows dropped.
+    """
+    try:
+        if column_to_check not in df.columns:
+            raise ValueError(f"Column '{column_to_check}' does not exist in the DataFrame.")
+
+        # Drop rows where the specified column is null
+        df = df.dropna(subset=[column_to_check])
+
+        num_empty_rows = (df[column_to_check] == "").sum()
+        # Drop rows where the specified column is an empty string
+        df = df[df[column_to_check] != '']
+
+        logging.info(f"Dropping '{num_empty_rows}' rows with empty '{column_to_check}' completed successfully.")
+        return df
+
+    except ValueError as ve:
+        logging.error(f"ValueError: {ve}")
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
