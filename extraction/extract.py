@@ -74,3 +74,54 @@ def download_csv_file(url_template, target_folder_path):
         logging.error(f"Failed to download the file: {e}")
         return "request_error", None
     return "request_error", None
+
+
+def download_files_iteratively(base_url, institution_code, target_folder_path, max_page_retries=3, retry_sleep_seconds=2):
+    """
+    Downloads CSV files for a given institution code iteratively by increasing the page number
+    until no more files can be downloaded or valid data is found.
+
+    Args:
+        base_url (str): Base URL without query parameters, e.g., "http://herbarium.emg.umu.se/export/CSV.php".
+        institution_code (str): The institution code to include in the URL.
+        target_folder_path (str): Path to the folder where the files should be saved.
+
+    Returns:
+        list: A list of paths to successfully downloaded files.
+    """
+    os.makedirs(target_folder_path, exist_ok=True)
+    page_number = 1
+    downloaded_files = []
+
+    while True:
+        # Construct the URL for the current page
+        url = f"{base_url}?InstitutionCode={institution_code}&Page={page_number}"
+
+        logging.info(f"Attempting to download page {page_number}...")
+        retries = 0
+        while True:
+            status, file_path = download_csv_file(url, target_folder_path)
+            if status == "downloaded":
+                downloaded_files.append(file_path)
+                page_number += 1
+                break
+            if status == "empty":
+                logging.info(f"No more valid files found after page {page_number - 1}.")
+                return downloaded_files
+            if status in {"request_error", "invalid_url"}:
+                retries += 1
+                if retries > max_page_retries:
+                    raise RuntimeError(
+                        f"Stopping due to repeated download failures on page {page_number} "
+                        f"after {max_page_retries} retries."
+                    )
+                logging.warning(
+                    "Retrying page %s after error (%s/%s)...",
+                    page_number,
+                    retries,
+                    max_page_retries,
+                )
+                time.sleep(retry_sleep_seconds)
+                continue
+
+    return downloaded_files
