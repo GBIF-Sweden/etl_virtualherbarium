@@ -26,3 +26,31 @@ def _find_existing_verbatim_files(extract_config):
 
 def _get_target_file_path(load_config):
     return load_config.get("targetFilePath") or load_config.get("targeFilePath")
+
+
+def _column_quality_stats(df):
+    out = {}
+    for col in ["catalogNumber", "scientificName", "decimalLatitude", "decimalLongitude"]:
+        if col in df.columns:
+            nulls = int(df[col].isna().sum())
+            empties = int((df[col] == "").sum()) if df[col].dtype == "object" else 0
+            out[col] = {"null": nulls, "empty": empties}
+    return out
+
+
+def _enforce_strict_quality(run_context, strict):
+    if not strict:
+        return
+    quality = run_context.get("quality", {})
+    repaired = int(quality.get("repaired_rows_total", 0))
+    malformed = int(quality.get("malformed_rows_total", 0))
+    dup_dropped = int(quality.get("duplicates", {}).get("duplicate_rows_dropped", 0))
+    violations = []
+    if malformed > 0:
+        violations.append(f"malformed_rows_total={malformed}")
+    if dup_dropped > 0:
+        violations.append(f"duplicate_rows_dropped={dup_dropped}")
+    if violations:
+        raise RuntimeError("Strict quality checks failed: " + "; ".join(violations))
+    if repaired > 0:
+        logging.warning("Strict mode: repaired_rows_total=%s (allowed, but monitor data quality).", repaired)
