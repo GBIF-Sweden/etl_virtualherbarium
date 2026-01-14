@@ -72,3 +72,60 @@ def save_to_database(
 
     engine = create_engine(connection_url, pool_pre_ping=True, future=True)
     Session = sessionmaker(bind=engine, future=True)
+
+    try:
+        with Session() as session:
+            metadata = MetaData()
+            table = Table(table_name, metadata, autoload_with=engine)
+
+            table_columns = {c.name for c in table.c}
+            keep_columns = [c for c in df.columns if c in table_columns]
+            df_filtered = df[keep_columns].copy().replace({np.nan: None})
+
+            total_rows = len(df_filtered)
+            logger.info(
+                "Writing to MySQL host=%s db=%s table=%s rows=%s batch_size=%s cols=%s mode=%s",
+                host, dbname, table_name, f"{total_rows:,}", effective_batch_size, len(keep_columns), write_mode
+            )
+
+            if pk_column and pk_column in df_filtered.columns:
+                unique_pk = df_filtered[pk_column].nunique(dropna=True)
+                logger.info("Unique %s values: %s", pk_column, f"{unique_pk:,}")
+                logger.info("Duplicate %s rows: %s", pk_column, f"{(total_rows - unique_pk):,}")
+
+            for start in range(0, total_rows, effective_batch_size):
+                end = min(start + effective_batch_size, total_rows)
+                batch_df = df_filtered.iloc[start:end]
+                records = batch_df.to_dict(orient="records")
+                if not records:
+                    continue
+
+                try:
+                    ins = mysql_insert(table).values(records)
+                    if write_mode == "ignore":
+                        stmt = ins.prefix_with("IGNORE")
+                    else:
+                        excluded = {pk_column} if pk_column else set()
+                        update_cols = {
+                            c.name: ins.inserted[c.name]
+                            for c in table.c
+                            if c.name not in excluded
+                        }
+                        stmt = ins.on_duplicate_key_update(**update_cols)
+
+                    result = session.execute(stmt)
+                    session.commit()
+                    logger.info("Batch %s:%s rowcount=%s", start, end, getattr(result, "rowcount", None))
+
+                    warns = session.execute(text("SHOW WARNINGS")).fetchall()
+                    if warns:
+                        logger.warning("Batch %s:%s warnings (up to 10): %s", start, end, warns[:10])
+
+                except SQLAlchemyError as e:
+                    logger.error("Error in batch rows %s:%s, rolling back batch: %s", start, end, e, exc_info=True)
+                    session.rollback()
+                    raise
+
+            logger.info("Database write completed successfully.")
+    finally:
+        engine.dispose()
