@@ -122,6 +122,108 @@ def download_files_iteratively(base_url, institution_code, target_folder_path, m
                     max_page_retries,
                 )
                 time.sleep(retry_sleep_seconds)
-                continue
-
     return downloaded_files
+
+def _normalize_escaped_value(value):
+    escape_map = {
+        r'\t': '\t',
+        r'\r': '\r',
+        r'\n': '\n',
+    }
+    return escape_map.get(value, value)
+
+
+def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, run_context=None):
+    """
+    Splits input CSV into a cleaned CSV and a malformed rows CSV based on header column count.
+    Returns path to cleaned temp file and row quality stats.
+    """
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    malformed_dir = os.path.join("data", "malformed")
+    os.makedirs(malformed_dir, exist_ok=True)
+    malformed_path = os.path.join(malformed_dir, f"{base_name}_malformed.csv")
+
+    cleaned_temp = tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", suffix=".csv", delete=False)
+    malformed_file = open(malformed_path, "w", encoding="utf-8", newline="")
+
+    malformed_count = 0
+    repaired_count = 0
+    line_too_short_count = 0
+    line_too_long_count = 0
+    try:
+        with open(file_path, "r", encoding="utf-8", newline="") as src:
+            reader = csv.reader(src, delimiter=delimiter, quotechar=quotechar)
+            cleaned_writer = csv.writer(cleaned_temp, delimiter=delimiter, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
+            malformed_writer = csv.writer(malformed_file, delimiter=delimiter, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
+
+            header = next(reader, None)
+            if header is None:
+                return cleaned_temp.name, {"expected_columns": 0, "repaired_rows": 0, "malformed_rows": 0}
+
+            expected_cols = len(header)
+            cleaned_writer.writerow(header)
+            malformed_writer.writerow(header)
+
+            for row in reader:
+                row_len = len(row)
+                if row_len == expected_cols:
+                    cleaned_writer.writerow(row)
+                    continue
+
+                # Some exporter rows have trailing delimiter drift:
+                # extra empty cells (or georef text shifted into tail cells).
+                # Repair those rows by normalizing to expected column count.
+                if row_len > expected_cols:
+                    line_too_long_count += 1
+                    base = row[:expected_cols]
+                    extras = row[expected_cols:]
+                    extras_non_empty = [v for v in extras if str(v).strip()]
+
+                    if extras_non_empty:
+                        last_value = str(base[-1]).strip()
+                        merged = " | ".join(extras_non_empty)
+                        base[-1] = f"{last_value} | {merged}" if last_value else merged
+
+                    cleaned_writer.writerow(base)
+                    repaired_count += 1
+                    continue
+
+                # If row is short, right-pad with empty values.
+                if row_len < expected_cols:
+                    line_too_short_count += 1
+                    cleaned_writer.writerow(row + ([""] * (expected_cols - row_len)))
+                    repaired_count += 1
+                    continue
+
+                malformed_writer.writerow(row)
+                malformed_count += 1
+    finally:
+        cleaned_temp.close()
+        malformed_file.close()
+
+    if malformed_count == 0:
+        try:
+            os.remove(malformed_path)
+        except OSError:
+            pass
+    else:
+        logging.warning(
+            f"Found {malformed_count} malformed rows in {file_path}. Saved to {malformed_path}."
+        )
+
+    if repaired_count > 0:
+        logging.info(
+            f"Repaired {repaired_count} structurally inconsistent rows in {file_path}."
+        )
+    if run_context is not None:
+        run_context.setdefault("quality", {}).setdefault("extraction_detail", []).append({
+            "file": file_path,
+            "too_long_rows": int(line_too_long_count),
+            "too_short_rows": int(line_too_short_count),
+        })
+
+    return cleaned_temp.name, {
+        "expected_columns": expected_cols,
+        "repaired_rows": repaired_count,
+        "malformed_rows": malformed_count,
+    }
