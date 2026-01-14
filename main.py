@@ -120,3 +120,29 @@ def _log_run_summary(config_path, action, report_path, run_context):
         d.get("duplicate_rows_dropped", 0),
         report_path,
     )
+
+
+def run_pipeline(config_path, action, strict=False):
+    config = load_yaml_config(config_path)
+    valid, errors = validate_pipeline_config(config)
+    if not valid:
+        raise ValueError(f"Invalid config {config_path}: " + " | ".join(errors))
+
+    extract_config = config["extract"]
+    load_config = config["load"]
+    run_context = {"run_id": datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"), "quality": {}}
+
+    downloaded_files = []
+    if action in ["download", "all"]:
+        downloaded_files = download_files_iteratively(
+            extract_config.get("sourcerURL"),
+            extract_config.get("herbarium"),
+            extract_config.get("verbatimFilePath"),
+            max_page_retries=int(extract_config.get("download_page_max_retries", 3)),
+            retry_sleep_seconds=int(extract_config.get("download_retry_sleep_seconds", 2)),
+        )
+        logging.info("Downloaded %s files for %s.", len(downloaded_files), extract_config.get("herbarium"))
+
+    if action == "download":
+        logging.info("Download step completed.")
+        return
