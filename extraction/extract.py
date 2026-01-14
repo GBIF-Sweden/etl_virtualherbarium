@@ -227,3 +227,103 @@ def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, run_context
         "repaired_rows": repaired_count,
         "malformed_rows": malformed_count,
     }
+
+
+def extract_from_csv(file_path, extract_config, run_context=None):
+    dtype = extract_config.get('dtype_dict', {})
+    quotechar = extract_config.get('quotechar')
+    lineterminator = extract_config.get('lineterminator')
+    delimiter = extract_config.get('delimiter')
+
+    # YAML single-quoted values like '\t' and '\r' are literal backslash sequences.
+    # Normalize them so pandas receives actual control characters.
+    delimiter = _normalize_escaped_value(delimiter)
+    lineterminator = _normalize_escaped_value(lineterminator)
+
+    read_kwargs = {
+        'sep': delimiter,
+        'quotechar': quotechar,
+        'dtype': dtype,
+    }
+    encodings = [extract_config.get("encoding", "utf-8"), "utf-8-sig", "latin-1"]
+    chunksize = extract_config.get("chunksize")
+    # C engine is faster and supports low_memory. Python engine does not.
+    if isinstance(delimiter, str) and len(delimiter) > 1 and delimiter != r'\s+':
+        read_kwargs['engine'] = 'python'
+    else:
+        read_kwargs['low_memory'] = False
+    cleaned_file_path = None
+    try:
+        cleaned_file_path, quality_stats = _split_valid_and_malformed_rows(
+            file_path, delimiter, quotechar, run_context=run_context
+        )
+        df = None
+        for enc in encodings:
+            try:
+                if chunksize:
+                    chunk_iter = pd.read_csv(cleaned_file_path, encoding=enc, chunksize=int(chunksize), **read_kwargs)
+                    df = pd.concat(list(chunk_iter), ignore_index=True)
+                else:
+                    df = pd.read_csv(cleaned_file_path, encoding=enc, **read_kwargs)
+                break
+            except UnicodeDecodeError:
+                continue
+        if df is None:
+            raise UnicodeDecodeError("unknown", b"", 0, 1, "Unable to decode source with tried encodings")
+
+        logging.info(f"Extracted {df.shape[0]} rows from source file.")
+        return df, quality_stats
+
+    except FileNotFoundError:
+        logging.error(f"Error: Source file not found at {file_path}.")
+        raise
+    except pd.errors.EmptyDataError:
+        logging.error("Error: The source file is empty.")
+        raise
+    finally:
+        if cleaned_file_path and os.path.exists(cleaned_file_path):
+            try:
+                os.remove(cleaned_file_path)
+            except OSError:
+                pass
+
+
+def read_csv_into_dataframe(downloaded_files, extract_config, run_context=None):
+    """
+    Reads all the CSV files from the given list of file paths into a single Pandas DataFrame.
+
+    Args:
+        downloaded_files (list): List of file paths to the downloaded CSV files.
+
+    Returns:
+        pd.DataFrame: Combined DataFrame containing data from all valid CSV files.
+        :param downloaded_files:
+        :param extract_config:
+    """
+    all_data = []
+    extraction_quality = []
+    for file_path in downloaded_files:
+        try:
+            # Read the CSV file into a DataFrame
+            df, stats = extract_from_csv(file_path, extract_config, run_context=run_context)
+            all_data.append(df)
+            extraction_quality.append({
+                "file": file_path,
+                "rows_read": int(len(df)),
+                "expected_columns": int(stats.get("expected_columns", 0)),
+                "repaired_rows": int(stats.get("repaired_rows", 0)),
+                "malformed_rows": int(stats.get("malformed_rows", 0)),
+            })
+            logging.info(f"Successfully read {file_path}, {len(df)} rows.")
+        except Exception as e:
+            logging.error(f"Error reading {file_path}: {e}")
+
+    # Combine all the DataFrames into one
+    if all_data:
+        combined_df = pd.concat(all_data, ignore_index=True)
+        logging.info(f"Combined DataFrame created with {len(combined_df)} rows.")
+    else:
+        combined_df = pd.DataFrame()  # Return an empty DataFrame if no files were read successfully
+        logging.warning("No valid data found in the downloaded files.")
+
+    return combined_df, extraction_quality
