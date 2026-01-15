@@ -122,6 +122,8 @@ def download_files_iteratively(base_url, institution_code, target_folder_path, m
                     max_page_retries,
                 )
                 time.sleep(retry_sleep_seconds)
+                continue
+
     return downloaded_files
 
 def _normalize_escaped_value(value):
