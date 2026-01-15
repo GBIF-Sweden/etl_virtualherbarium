@@ -169,3 +169,35 @@ def run_pipeline(config_path, action, strict=False):
     rows_after_transform = int(len(df))
     logging.info("Number of rows after transformation: %s.", df.shape[0])
     logging.info("Number of columns after transformation: %s.", df.shape[1])
+
+    dwc_fields = load_config.get("dwc_fields", [])
+    if dwc_fields:
+        df = df[dwc_fields]
+    run_context["final_df"] = df
+    _enforce_strict_quality(run_context, strict)
+
+    processed_file_path = _get_target_file_path(load_config)
+    if load_config.get("write_to_file") and processed_file_path:
+        df.to_csv(
+            processed_file_path,
+            sep=load_config.get("delimiter", "\t"),
+            encoding=load_config.get("encoding", "utf-8"),
+            index=False,
+        )
+
+    if load_config.get("write_to_db"):
+        save_to_database(df, load_config)
+
+    report_path = _write_quality_report(
+        config=config,
+        config_path=config_path,
+        action=action,
+        source_files=source_files,
+        extraction_quality=extraction_quality,
+        input_rows=input_rows,
+        rows_after_transform=rows_after_transform,
+        final_rows=int(len(df)),
+        run_context=run_context,
+    )
+    _log_run_summary(config_path, action, report_path, run_context)
+    logging.info("ETL process completed successfully!")
