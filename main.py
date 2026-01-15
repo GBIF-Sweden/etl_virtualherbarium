@@ -146,3 +146,26 @@ def run_pipeline(config_path, action, strict=False):
     if action == "download":
         logging.info("Download step completed.")
         return
+
+    source_files = downloaded_files if downloaded_files else _find_existing_verbatim_files(extract_config)
+    if not source_files:
+        logging.warning(
+            "No source files found for herbarium '%s' in '%s'.",
+            extract_config.get("herbarium"),
+            extract_config.get("verbatimFilePath"),
+        )
+        return
+
+    df, extraction_quality = read_csv_into_dataframe(source_files, extract_config, run_context=run_context)
+    input_rows = int(len(df))
+    run_context["quality"]["repaired_rows_total"] = int(sum(item.get("repaired_rows", 0) for item in extraction_quality))
+    run_context["quality"]["malformed_rows_total"] = int(sum(item.get("malformed_rows", 0) for item in extraction_quality))
+
+    if len(df) == 0:
+        logging.warning("No rows available after extraction.")
+        return
+
+    df = apply_transformations(df, config, run_context=run_context)
+    rows_after_transform = int(len(df))
+    logging.info("Number of rows after transformation: %s.", df.shape[0])
+    logging.info("Number of columns after transformation: %s.", df.shape[1])
