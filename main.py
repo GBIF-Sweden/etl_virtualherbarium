@@ -201,3 +201,24 @@ def run_pipeline(config_path, action, strict=False):
     )
     _log_run_summary(config_path, action, report_path, run_context)
     logging.info("ETL process completed successfully!")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Swedish Virtual Herbarium Data Harvester.")
+    parser.add_argument("config_path", nargs="?", type=str, help="Positional config path (legacy compatibility).")
+    parser.add_argument("--config", nargs="+", dest="config_paths", help="One or more config paths.")
+    parser.add_argument("--action", choices=["download", "process", "all"], default="all", help="Action to perform.")
+    parser.add_argument("--strict", action="store_true", help="Enable strict quality thresholds.")
+    args = parser.parse_args()
+
+    config_paths = args.config_paths or ([args.config_path] if args.config_path else [])
+    if not config_paths:
+        parser.error("Provide config path(s) using --config or positional config_path.")
+
+    for cfg in config_paths:
+        logging.info("Running action '%s' for config: %s", args.action, cfg)
+        run_pipeline(
+            cfg,
+            args.action,
+            strict=args.strict,
+        )
