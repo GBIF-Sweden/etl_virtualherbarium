@@ -88,7 +88,7 @@ jobs:
       - name: Security scan (Trivy image)
         if: ${{ github.event_name != 'pull_request' && !env.ACT }}
         run: |
-          IMAGE="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ steps.image.outputs.name }}:${{ github.ref_name }}"
+          IMAGE="$(echo "${{ steps.meta.outputs.tags }}" | head -n1)"
           docker run --rm aquasec/trivy:0.56.1 image \
             --exit-code 1 \
             --severity HIGH,CRITICAL \
