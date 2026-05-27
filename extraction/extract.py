@@ -55,7 +55,7 @@ def download_csv_file(url_template, target_folder_path):
         has_data = False
         with open(save_path, "r", encoding="utf-8", newline="") as file:
             reader = csv.reader(file)
-            header = next(reader, None)
+            next(reader, None)
 
             for row in reader:
                 if any(cell.strip() for cell in row):

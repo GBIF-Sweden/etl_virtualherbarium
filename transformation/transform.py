@@ -48,7 +48,7 @@ def clean_whitespace(df):
         df_cleaned = df.map(
             lambda x: ' '.join(str(x).split()).replace('\t', '').replace('\v', '') if isinstance(x, str) else x
         )
-        logging.info(f"Whitespace cleaning transformation completed successfully.")
+        logging.info("Whitespace cleaning transformation completed successfully.")
         return df_cleaned
 
     except Exception as e:
