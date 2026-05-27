@@ -24,6 +24,7 @@ logs/*.log
 data/malformed/*_malformed.csv
 data/processed/duplicates_*.csv
 data/processed/quality_report_*.json
+data
 
 # Local env
 .env
