@@ -9,13 +9,4 @@ services:
       - ./config-mappings:/app/config-mappings
       - ./data:/app/data
       - ./logs:/app/logs
-    environment:
-      CONFIG_PATH: config-mappings/ume.yml
-      ACTION: process
-    command:
-      - python
-      - main.py
-      - --config
-      - ${CONFIG_PATH:-config-mappings/ume.yml}
-      - --action
-      - ${ACTION:-process}
+
