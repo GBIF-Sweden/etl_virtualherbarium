@@ -29,6 +29,7 @@ jobs:
       - name: Security audit (pip-audit)
         run: pip-audit -r requirements.txt -r requirements-dev.txt
       - name: Security scan (Trivy filesystem)
+        if: ${{ !env.ACT }}
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
@@ -77,6 +78,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Security scan (Trivy image)
+        if: ${{ !env.ACT }}
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.ref_name }}
