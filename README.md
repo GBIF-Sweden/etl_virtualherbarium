@@ -1,6 +1,6 @@
 # etl_virtualherbarium
 
-ETL pipeline for Swedish Virtual Herbarium data.
+ETL pipeline for harvesting and transforming data from Swedish Virtual Herbarium (https://herbarium.emg.umu.se/) into DarwinCore standard.
 
 ## What it does
 - Downloads verbatim CSV pages per herbarium (`GB`, `OHN`, `UME`, `UPS`).
@@ -35,7 +35,23 @@ Optional:
 - Malformed rows (if any): `data/malformed/<source>_malformed.csv`
 
 ## Docker
-Build and run with Compose:
+
+### Building the Image
+The Docker image contains only the runtime files necessary to execute the pipeline. You can build it using the provided `Makefile` or the Docker CLI.
+
+**Using Make:**
+```bash
+make build
+```
+
+**Using Docker CLI:**
+```bash
+docker build -t etl_virtualherbarium:latest .
+```
+
+### Running with Compose
+The recommended way to run the pipeline in a container is via Docker Compose, which handles volume mounting for logs and data:
+
 ```bash
 docker compose up --build
 ```
@@ -45,7 +61,7 @@ Environment overrides:
 - `ACTION` (default `process`)
 
 Image notes:
-- Docker image includes only runtime files (no tests, logs, reference materials, or local env files).
+- The image includes the application code and dependencies but excludes tests, local logs, and environment files.
 
 ## Make targets
 - `make build`
