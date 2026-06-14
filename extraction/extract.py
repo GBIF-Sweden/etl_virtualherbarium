@@ -6,6 +6,8 @@ import csv
 import tempfile
 import time
 
+from extraction.row_repair import repair_overwide_row
+
 
 def download_csv_file(url_template, target_folder_path):
     """
@@ -135,7 +137,7 @@ def _normalize_escaped_value(value):
     return escape_map.get(value, value)
 
 
-def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, run_context=None):
+def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, lineterminator, encoding="utf-8", extract_config=None, run_context=None):
     """
     Splits input CSV into a cleaned CSV and a malformed rows CSV based on header column count.
     Returns path to cleaned temp file and row quality stats.
@@ -150,55 +152,110 @@ def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, run_context
 
     malformed_count = 0
     repaired_count = 0
+    targeted_repair_count = 0
+    ambiguous_count = 0
     line_too_short_count = 0
     line_too_long_count = 0
+
+    # Ensure delimiter and lineterminator are bytes for binary reading
+    delimiter_bytes = delimiter.encode('utf-8') if isinstance(delimiter, str) else delimiter
+    lineterminator_bytes = lineterminator.encode('utf-8') if isinstance(lineterminator, str) else lineterminator
+
     try:
-        with open(file_path, "r", encoding="utf-8", newline="") as src:
-            reader = csv.reader(src, delimiter=delimiter, quotechar=quotechar)
-            cleaned_writer = csv.writer(cleaned_temp, delimiter=delimiter, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
-            malformed_writer = csv.writer(malformed_file, delimiter=delimiter, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
+        with open(file_path, "rb") as src:
+            content = src.read()
 
-            header = next(reader, None)
-            if header is None:
-                return cleaned_temp.name, {"expected_columns": 0, "repaired_rows": 0, "malformed_rows": 0}
+        if lineterminator_bytes:
+            raw_records = content.split(lineterminator_bytes)
+        else:
+            raw_records = [content]
 
-            expected_cols = len(header)
-            cleaned_writer.writerow(header)
-            malformed_writer.writerow(header)
+        # Filter out trailing empty record
+        if raw_records and len(raw_records[-1]) == 0:
+            raw_records.pop()
 
-            for row in reader:
-                row_len = len(row)
-                if row_len == expected_cols:
-                    cleaned_writer.writerow(row)
-                    continue
+        encodings = [encoding, "utf-8-sig", "latin-1"]
+        decoded_records = None
+        for enc in encodings:
+            try:
+                # Test decode on a sample of records
+                for r in raw_records[:100]:
+                    r.decode(enc)
+                decoded_records = [r.decode(enc) for r in raw_records]
+                break
+            except UnicodeDecodeError:
+                continue
 
-                # Some exporter rows have trailing delimiter drift:
-                # extra empty cells (or georef text shifted into tail cells).
-                # Repair those rows by normalizing to expected column count.
-                if row_len > expected_cols:
-                    line_too_long_count += 1
-                    base = row[:expected_cols]
-                    extras = row[expected_cols:]
-                    extras_non_empty = [v for v in extras if str(v).strip()]
+        if decoded_records is None:
+            raise UnicodeDecodeError("unknown", b"", 0, 1, "Unable to decode source with tried encodings")
 
-                    if extras_non_empty:
-                        last_value = str(base[-1]).strip()
-                        merged = " | ".join(extras_non_empty)
-                        base[-1] = f"{last_value} | {merged}" if last_value else merged
+        cleaned_writer = csv.writer(cleaned_temp, delimiter=delimiter, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
+        malformed_writer = csv.writer(malformed_file, delimiter=delimiter, quotechar=quotechar, quoting=csv.QUOTE_MINIMAL)
 
-                    cleaned_writer.writerow(base)
+        if not decoded_records:
+            return cleaned_temp.name, {"expected_columns": 0, "repaired_rows": 0, "malformed_rows": 0}
+
+        header = decoded_records[0].split(delimiter)
+        # Clean header values from surrounding quotes if present
+        if quotechar:
+            header = [
+                val[1:-1].replace(quotechar + quotechar, quotechar)
+                if len(val) >= 2 and val.startswith(quotechar) and val.endswith(quotechar)
+                else val
+                for val in header
+            ]
+
+        expected_cols = len(header)
+        cleaned_writer.writerow(header)
+        malformed_writer.writerow(header)
+
+        for record in decoded_records[1:]:
+            if len(record) == 0:
+                continue
+
+            row = record.split(delimiter)
+            if quotechar:
+                cleaned_row = []
+                for val in row:
+                    if len(val) >= 2 and val.startswith(quotechar) and val.endswith(quotechar):
+                        val = val[1:-1]
+                        val = val.replace(quotechar + quotechar, quotechar)
+                    cleaned_row.append(val)
+                row = cleaned_row
+
+            row_len = len(row)
+            if row_len == expected_cols:
+                cleaned_writer.writerow(row)
+                continue
+
+            # Some exporter rows have trailing delimiter drift:
+            # extra empty cells (or georef text shifted into tail cells).
+            # Repair those rows by normalizing to expected column count.
+            if row_len > expected_cols:
+                line_too_long_count += 1
+                repaired_row, repair_type = repair_overwide_row(row, header, extract_config or {})
+                if repair_type in {"targeted", "drop_empty_shift", "truncate_empty_tail", "merge_last"}:
+                    cleaned_writer.writerow(repaired_row)
                     repaired_count += 1
+                    if repair_type == "targeted":
+                        targeted_repair_count += 1
                     continue
-
-                # If row is short, right-pad with empty values.
-                if row_len < expected_cols:
-                    line_too_short_count += 1
-                    cleaned_writer.writerow(row + ([""] * (expected_cols - row_len)))
-                    repaired_count += 1
-                    continue
-
+                if repair_type == "ambiguous":
+                    ambiguous_count += 1
                 malformed_writer.writerow(row)
                 malformed_count += 1
+                continue
+
+            # If row is short, right-pad with empty values.
+            if row_len < expected_cols:
+                line_too_short_count += 1
+                cleaned_writer.writerow(row + ([""] * (expected_cols - row_len)))
+                repaired_count += 1
+                continue
+
+            malformed_writer.writerow(row)
+            malformed_count += 1
+
     finally:
         cleaned_temp.close()
         malformed_file.close()
@@ -222,6 +279,8 @@ def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, run_context
             "file": file_path,
             "too_long_rows": int(line_too_long_count),
             "too_short_rows": int(line_too_short_count),
+            "targeted_repairs": int(targeted_repair_count),
+            "ambiguous_repairs": int(ambiguous_count),
         })
 
     return cleaned_temp.name, {
@@ -257,7 +316,13 @@ def extract_from_csv(file_path, extract_config, run_context=None):
     cleaned_file_path = None
     try:
         cleaned_file_path, quality_stats = _split_valid_and_malformed_rows(
-            file_path, delimiter, quotechar, run_context=run_context
+            file_path,
+            delimiter,
+            quotechar,
+            lineterminator,
+            encoding=extract_config.get("encoding", "utf-8"),
+            extract_config=extract_config,
+            run_context=run_context,
         )
         df = None
         for enc in encodings:
