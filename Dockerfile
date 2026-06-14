@@ -14,6 +14,7 @@ COPY extraction ./extraction
 COPY transformation ./transformation
 COPY loading ./loading
 COPY utils ./utils
+COPY pipeline ./pipeline
 COPY config-mappings ./config-mappings
 
 CMD ["python", "main.py", "--help"]
