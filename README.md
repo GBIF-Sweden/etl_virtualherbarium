@@ -24,7 +24,33 @@ Actions:
 - `all`: download + process
 
 Optional:
-- `--strict`: fail if malformed rows or dropped duplicates are non-zero (repaired rows are logged as warning)
+- `--strict`: fail if malformed rows are non-zero; repaired rows and dropped duplicates are logged as warnings
+
+## Extraction repair
+The upstream exporter writes tab-separated data manually, so raw tabs inside text fields can shift later values into the wrong columns. During extraction, the pipeline normalizes each verbatim file before pandas reads it:
+
+- Rows with trailing empty surplus columns are truncated back to the expected header width.
+- Rows shifted by surplus empty fields are repaired only when validation keeps dates, coordinates, geography, scientific names, and georeference fields plausible.
+- Rows with tabs inside known text fields such as `Locality`, `OriginalName`, `OriginalText`, `Notes`, `Comments`, or `georeferenceRemarks` are repaired by merging the split field when the result is the best validated candidate.
+- Rows that cannot be repaired confidently are written to `data/malformed/<source>_malformed.csv` and counted as malformed.
+
+Optional extract config keys:
+```yaml
+extract:
+  repair_text_columns:
+    - Locality
+    - OriginalName
+    - OriginalText
+    - Notes
+    - Comments
+    - georeferenceRemarks
+  repair_validation:
+    WGS84N: numeric_or_empty
+    WGS84S: numeric_or_empty
+    DateCollected: date_or_empty
+```
+
+Supported validation rules are `non_empty`, `numeric_or_empty`, `date_or_empty`, `text_or_empty`, and `known_continent_or_empty`.
 
 ## Output
 - Processed files: `data/processed/dwc_<herbarium>.csv`

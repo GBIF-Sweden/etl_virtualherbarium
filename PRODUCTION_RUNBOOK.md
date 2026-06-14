@@ -18,8 +18,7 @@ python main.py --config config-mappings/ups.yml --action process --strict
 ```
 Strict mode fails when:
 - malformed rows > 0
-- duplicate rows dropped > 0
-Strict mode does not fail on repaired rows; it logs a warning.
+Strict mode does not fail on repaired rows or duplicate cleanup; it logs warnings for both.
 
 ## Operational checks after run
 - Verify final output file exists in `data/processed/`.
@@ -28,8 +27,11 @@ Strict mode does not fail on repaired rows; it logs a warning.
 - Inspect key metrics:
   - `extraction.repaired_rows_total`
   - `extraction.malformed_rows_total`
+  - `extraction.detail[].targeted_repairs`
+  - `extraction.detail[].ambiguous_repairs`
   - `transformation.duplicates.duplicate_rows_dropped`
   - `output.final_rows`
+- Spot-check repaired rows when repair counts change materially. Pay particular attention to columns after free-text fields, such as coordinates, scientific name parts, RT90 values, and georeference remarks.
 
 ## Test command
 Use interpreter-bound pytest:
@@ -39,6 +41,8 @@ python -m pytest
 
 ## Alert thresholds (recommended)
 - `malformed_rows_total > 0`: high severity.
+- `ambiguous_repairs > 0`: high severity; inspect malformed rows before accepting output.
+- sudden increase in `targeted_repairs` or `repaired_rows_total`: medium severity; compare against previous run and spot-check affected records.
 - `duplicate_rows_dropped` sudden increase > 20% versus previous run: medium severity.
 - `final_rows` drop > 10% versus previous run: high severity.
 - repeated downloader retry exhaustion/failure: high severity.
@@ -49,7 +53,11 @@ python -m pytest
    - retry run; inspect retry logs
 2. Strict-mode quality failure:
    - inspect malformed files (`data/malformed/*`)
+   - compare malformed row field counts with the verbatim header
+   - search the catalog number in `data/verbatim/<herbarium>_*.csv`
+   - verify whether the issue is an unescaped tab in a text field, surplus empty fields, or a genuinely unsafe row shape
    - inspect duplicates file (`data/processed/duplicates_*.csv`)
+   - if a row is repairable by a general rule, add a regression test before changing extraction repair logic
 3. DB load failure:
    - verify env credentials
    - verify table schema and PK/unique constraints
