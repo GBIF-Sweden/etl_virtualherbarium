@@ -2,6 +2,8 @@ import pandas as pd
 import logging
 import os
 
+from transformation.registry import get_transformation, is_config_aware, resolve_transformation_name
+
 
 def apply_transformations(df, config, run_context=None):
     try:
@@ -17,15 +19,15 @@ def apply_transformations(df, config, run_context=None):
         for transformation in transformations:
             func_name = transformation.get('function')
             params = transformation.get('params', {})
-            logging.info(f"Running Transformation function {func_name}")
-            # Call transformation function dynamically
-            if func_name in globals():
-                if func_name in ["add_dynamicProperties", "vernacular_to_scientificName", "drop_unmapped_columns", "drop_duplicate_rows"]:
-                    df = globals()[func_name](df, config, run_context=run_context)
-                else:
-                    df = globals()[func_name](df, **params)
+            resolved_name = resolve_transformation_name(func_name)
+            logging.info("Running Transformation function %s", resolved_name)
+            transform_fn = get_transformation(func_name)
+            if transform_fn is None:
+                raise ValueError(f"Transformation function '{func_name}' not found.")
+            if is_config_aware(func_name):
+                df = transform_fn(df, config, run_context=run_context)
             else:
-                logging.info(f"Transformation function {func_name} not found. Skipping.")
+                df = transform_fn(df, **params)
 
         return df
     except Exception as e:

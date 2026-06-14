@@ -82,4 +82,31 @@ def validate_pipeline_config(config: dict) -> Tuple[bool, List[str]]:
         except Exception:
             errors.append("load.database_batch_size must be an integer.")
 
+    try:
+        from transformation.registry import available_transformations, resolve_transformation_name
+
+        known_transformations = set(available_transformations())
+        transformations = config.get("transformations", [])
+        if transformations is not None and not isinstance(transformations, list):
+            errors.append("'transformations' section must be a list if present.")
+        for idx, transformation in enumerate(transformations or []):
+            if not isinstance(transformation, dict):
+                errors.append(f"Transformation entry at index {idx} must be a mapping/object.")
+                continue
+            func_name = transformation.get("function")
+            if not isinstance(func_name, str) or not func_name.strip():
+                errors.append(f"Transformation entry at index {idx} requires a non-empty 'function' name.")
+                continue
+            resolved = resolve_transformation_name(func_name)
+            if resolved not in known_transformations:
+                errors.append(
+                    f"Unknown transformation function '{func_name}'. "
+                    f"Valid values: {sorted(known_transformations)}."
+                )
+            params = transformation.get("params", {})
+            if params is not None and not isinstance(params, dict):
+                errors.append(f"Transformation '{func_name}' params must be a mapping/object.")
+    except Exception as exc:
+        errors.append(f"Failed to validate transformation registry: {exc}")
+
     return len(errors) == 0, errors
