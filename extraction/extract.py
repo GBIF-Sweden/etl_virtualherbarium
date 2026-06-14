@@ -157,8 +157,7 @@ def _split_valid_and_malformed_rows(file_path, delimiter, quotechar, linetermina
     line_too_short_count = 0
     line_too_long_count = 0
 
-    # Ensure delimiter and lineterminator are bytes for binary reading
-    delimiter_bytes = delimiter.encode('utf-8') if isinstance(delimiter, str) else delimiter
+    # Ensure lineterminator is bytes for binary reading
     lineterminator_bytes = lineterminator.encode('utf-8') if isinstance(lineterminator, str) else lineterminator
 
     try:
